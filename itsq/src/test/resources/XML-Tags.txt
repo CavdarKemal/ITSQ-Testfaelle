@@ -1,0 +1,7 @@
+letzte-archivaenderung
+gueltig-bis
+vorraetig-bis
+zeitpunkt
+letzte-auskunft
+erfassung
+jahr
