@@ -23,6 +23,7 @@ import static cte.testfaelle.consistency.RefExportsBeschreibung.NOT_SUPPORTED;
 
 public class TestSetData {
     Map<TestSupportClientKonstanten.TEST_PHASE, Map<Long, RefExportsBeschreibung>> refExpTargetMapMap = new TreeMap<>();
+    Map<TestSupportClientKonstanten.TEST_PHASE, Map<String, Map<Long, RefExportsBeschreibung>>> refExpPerCustomerMap = new TreeMap<>();
     Map<TestSupportClientKonstanten.TEST_PHASE, Map<Long, RohdatenBeschreibung>> rohDatenTargetMapMap = new TreeMap<>();
     final Map<TestSupportClientKonstanten.TEST_PHASE, Map<String, TestCustomer>> customerTestInfoMapMap;
 
@@ -30,6 +31,7 @@ public class TestSetData {
         this.customerTestInfoMapMap = customerTestInfoMapMap;
         for (TestSupportClientKonstanten.TEST_PHASE testPhase : TestSupportClientKonstanten.TEST_PHASE.values()) {
             Map<Long, RefExportsBeschreibung> refExportsBeschreibungMap = new TreeMap<>();
+            Map<String, Map<Long, RefExportsBeschreibung>> refExpPerCustomer = new TreeMap<>();
             Map<Long, RohdatenBeschreibung> rohDatenBeschreibungMap = new TreeMap<>();
             Map<String, TestCustomer> testCustomerMap = customerTestInfoMapMap.get(testPhase);
             testCustomerMap.keySet().forEach(customerKey -> {
@@ -37,6 +39,7 @@ public class TestSetData {
                 RohdatenParser rohdatenParser = new RohdatenParser();
                 RefExportsParserIF refExportsParser = RefExportsConsistencyBase.refExportsParserMap.get(customerKey.toLowerCase(Locale.ROOT));
                 if (refExportsParser != null) {
+                    Map<Long, RefExportsBeschreibung> perCrefoMap = refExpPerCustomer.computeIfAbsent(customerKey, k -> new TreeMap<>());
                     testCustomer.getTestScenariosMap().keySet().forEach(scenarioName -> {
                         TestScenario testScenario = testCustomer.getTestScenariosMap().get(scenarioName);
                         Map<String, TestCrefo> testFallNameToTestCrefoMap = testScenario.getTestFallNameToTestCrefoMap();
@@ -45,6 +48,7 @@ public class TestSetData {
                                 TestCrefo testCrefo = testFallNameToTestCrefoMap.get(testFallName);
                                 RefExportsBeschreibung refExportsBeschreibung = refExportsParser.parseFile(customerKey, testCrefo);
                                 refExportsBeschreibungMap.put(testCrefo.getItsqTestCrefoNr(), refExportsBeschreibung);
+                                perCrefoMap.put(testCrefo.getItsqTestCrefoNr(), refExportsBeschreibung);
                                 RohdatenBeschreibung rohdatenBeschreibung = rohdatenParser.parseFile(testCrefo.getItsqAb30XmlFile());
                                 rohDatenBeschreibungMap.put(testCrefo.getItsqTestCrefoNr(), rohdatenBeschreibung);
                             }
@@ -55,6 +59,7 @@ public class TestSetData {
                 }
             });
             refExpTargetMapMap.put(testPhase, refExportsBeschreibungMap);
+            refExpPerCustomerMap.put(testPhase, refExpPerCustomer);
             rohDatenTargetMapMap.put(testPhase, rohDatenBeschreibungMap);
         }
     }
@@ -178,26 +183,29 @@ public class TestSetData {
 
     public ConsistencyCheckResult checkClzAndExportTypConsistency() {
         ConsistencyCheckResult consistencyCheckResult = new ConsistencyCheckResult();
-        Map<Long, RefExportsBeschreibung> refExpTargetMapPhase1 = refExpTargetMapMap.get(TestSupportClientKonstanten.TEST_PHASE.PHASE_1);
-        Map<Long, RefExportsBeschreibung> refExpTargetMapPhase2 = refExpTargetMapMap.get(TestSupportClientKonstanten.TEST_PHASE.PHASE_2);
-        for (Map.Entry<Long, RefExportsBeschreibung> entryPhase1 : refExpTargetMapPhase1.entrySet()) {
+        Map<String, Map<Long, RefExportsBeschreibung>> phase1PerCustomer = refExpPerCustomerMap.get(TestSupportClientKonstanten.TEST_PHASE.PHASE_1);
+        Map<String, Map<Long, RefExportsBeschreibung>> phase2PerCustomer = refExpPerCustomerMap.get(TestSupportClientKonstanten.TEST_PHASE.PHASE_2);
+        for (Map.Entry<String, Map<Long, RefExportsBeschreibung>> custEntry : phase1PerCustomer.entrySet()) {
+            String customerKey = custEntry.getKey();
+            Map<Long, RefExportsBeschreibung> phase2ForCustomer = phase2PerCustomer.getOrDefault(customerKey, new TreeMap<>());
+            for (Map.Entry<Long, RefExportsBeschreibung> entryPhase1 : custEntry.getValue().entrySet()) {
             RefExportsBeschreibung refExportsBeschreibungPhase1 = entryPhase1.getValue();
-            RefExportsBeschreibung refExportsBeschreibungPhase2 = refExpTargetMapPhase2.get(refExportsBeschreibungPhase1.getCrefoNummer());
+                RefExportsBeschreibung refExportsBeschreibungPhase2 = phase2ForCustomer.get(refExportsBeschreibungPhase1.getCrefoNummer());
             if (refExportsBeschreibungPhase2 != null) {
-                // Check CLZs
                 if (!refExportsBeschreibungPhase1.getClzString().equals(refExportsBeschreibungPhase2.getClzString())) {
-                    String errMsg = "Phase-1-CLZ für " + refExportsBeschreibungPhase1.getCrefoNummer() + " stimmt nicht mit CLZ-Phase2 überein: " + refExportsBeschreibungPhase1.getClzString() + " <> " + refExportsBeschreibungPhase2.getClzString();
+                        String errMsg = "Phase-1-CLZ für Kunde '" + customerKey + "' Crefo " + refExportsBeschreibungPhase1.getCrefoNummer() + " stimmt nicht mit CLZ-Phase2 überein: " + refExportsBeschreibungPhase1.getClzString() + " <> " + refExportsBeschreibungPhase2.getClzString();
                     consistencyCheckResult.addAssertion(errMsg);
                 }
-                // Check Export-Typs
                 if (!refExportsBeschreibungPhase1.getRefExportType().equals(refExportsBeschreibungPhase2.getRefExportType())) {
-                    String errMsg = "Phase-1-ExportTyp für die Crefo " + refExportsBeschreibungPhase1.getCrefoNummer() + " stimmt nicht mit ExportTyp-Phase2 überein: " + refExportsBeschreibungPhase1.getClzString() + " <> " + refExportsBeschreibungPhase2.getClzString();
+                        String errMsg = "Phase-1-ExportTyp für Kunde '" + customerKey + "' Crefo " + refExportsBeschreibungPhase1.getCrefoNummer() +
+                                " stimmt nicht mit ExportTyp-Phase2 überein: " + refExportsBeschreibungPhase1.getRefExportType() + " <> " + refExportsBeschreibungPhase2.getRefExportType();
                     consistencyCheckResult.addAssertion(errMsg);
                 }
             } else {
-                String errMsg = "Zu Phase-1-RefExportsBeschreibung für die Crefo " + refExportsBeschreibungPhase1.getCrefoNummer() + " wurde kein Phase-2-RefExportsBeschreibung gefunden!";
+                    String errMsg = "Zu Phase-1-RefExportsBeschreibung für Kunde '" + customerKey + "' Crefo " + refExportsBeschreibungPhase1.getCrefoNummer() + " wurde kein Phase-2-RefExportsBeschreibung gefunden!";
                 consistencyCheckResult.addAssertion(errMsg);
             }
+        }
         }
         return consistencyCheckResult;
     }
